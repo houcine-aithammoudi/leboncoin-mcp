@@ -23,10 +23,10 @@ Ce serveur MCP est basé sur la librairie Python **[lbc](https://github.com/etie
 git clone https://github.com/wydii/leboncoin-mcp.git
 cd leboncoin-mcp
 
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+uv sync
 ```
+
+> Le projet utilise [uv](https://docs.astral.sh/uv/) : `uv sync` crée le `.venv` et installe les dépendances épinglées dans `uv.lock`.
 
 > **Utilisateurs Nix :** un `shell.nix` est fourni — `nix-shell` configure le `LD_LIBRARY_PATH` et active le venv automatiquement.
 
@@ -35,7 +35,7 @@ pip install -r requirements.txt
 ### Transport stdio (par défaut)
 
 ```bash
-python server.py
+uv run server.py
 ```
 
 C'est le mode utilisé par les clients MCP comme Cursor, Claude Desktop, etc.
@@ -43,9 +43,12 @@ C'est le mode utilisé par les clients MCP comme Cursor, Claude Desktop, etc.
 ### Transport SSE (HTTP)
 
 ```bash
-python server.py --sse              # port 3001 par défaut
-python server.py --sse --port=8080  # port personnalisé
+uv run server.py --sse                    # 127.0.0.1:3001 par défaut
+uv run server.py --sse --port=8080        # port personnalisé
+uv run server.py --sse --host=0.0.0.0     # exposer sur le réseau (aucune authentification !)
 ```
+
+> Le transport SSE n'a pas d'authentification. Il écoute sur `127.0.0.1` par défaut ; ne l'exposez sur le réseau que derrière un reverse proxy authentifié.
 
 ## Configuration dans Cursor
 
@@ -55,8 +58,8 @@ Ajoutez ceci dans votre configuration MCP (`.cursor/mcp.json`) :
 {
   "mcpServers": {
     "leboncoin": {
-      "command": "python",
-      "args": ["/chemin/vers/leboncoin-mcp/server.py"]
+      "command": "uv",
+      "args": ["run", "--directory", "/chemin/vers/leboncoin-mcp", "server.py"]
     }
   }
 }

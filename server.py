@@ -1,5 +1,6 @@
-from dataclasses import asdict, fields
+import re
 from typing import Optional
+from urllib.parse import urlparse
 
 import lbc
 from fastmcp import FastMCP
@@ -12,7 +13,28 @@ mcp = FastMCP("leboncoin", instructions=(
     "Categories map to Leboncoin sections (VEHICULES, IMMOBILIER, ELECTRONIQUE, etc.)."
 ))
 
-_client = lbc.Client()
+_client: Optional[lbc.Client] = None
+
+_AD_ID_RE = re.compile(r"^\d{1,20}$")
+_USER_ID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+_ALLOWED_SEARCH_HOSTS = {"www.leboncoin.fr", "leboncoin.fr"}
+
+
+def _get_client() -> lbc.Client:
+    # Created lazily: lbc.Client() performs a network request to seed cookies.
+    global _client
+    if _client is None:
+        _client = lbc.Client()
+    return _client
+
+
+def _validate_search_url(url: str) -> str:
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or parsed.hostname not in _ALLOWED_SEARCH_HOSTS:
+        raise ValueError("url must be an https://www.leboncoin.fr search URL")
+    if not parsed.query:
+        raise ValueError("url must contain search parameters (missing '?')")
+    return url
 
 CATEGORY_MAP = {item.name: item for item in lbc.Category}
 SORT_MAP = {item.name: item for item in lbc.Sort}
@@ -147,7 +169,7 @@ def search_ads(
     kwargs = {}
 
     if url:
-        kwargs["url"] = url
+        kwargs["url"] = _validate_search_url(url)
     else:
         if text:
             kwargs["text"] = text
@@ -174,7 +196,7 @@ def search_ads(
     kwargs["limit"] = min(limit, 35)
     kwargs["limit_alu"] = 0
 
-    result = _client.search(**kwargs)
+    result = _get_client().search(**kwargs)
 
     return {
         "total": result.total,
@@ -193,7 +215,9 @@ def get_ad(ad_id: str) -> dict:
     Args:
         ad_id: The Leboncoin ad ID (numeric string from the ad URL).
     """
-    ad = _client.get_ad(ad_id)
+    if not _AD_ID_RE.match(ad_id):
+        raise ValueError("ad_id must be a numeric string")
+    ad = _get_client().get_ad(ad_id)
     result = _ad_to_dict(ad)
     result["favorites"] = ad.favorites
     return result
@@ -206,7 +230,9 @@ def get_user(user_id: str) -> dict:
     Args:
         user_id: The Leboncoin user ID (UUID format).
     """
-    user = _client.get_user(user_id)
+    if not _USER_ID_RE.match(user_id):
+        raise ValueError("user_id must be a UUID")
+    user = _get_client().get_user(user_id)
     return _user_to_dict(user)
 
 
@@ -232,10 +258,14 @@ if __name__ == "__main__":
     import sys
 
     if "--sse" in sys.argv:
+        # Bind to localhost by default: the SSE transport has no authentication.
+        host = "127.0.0.1"
         port = 3001
         for arg in sys.argv:
             if arg.startswith("--port="):
                 port = int(arg.split("=", 1)[1])
-        mcp.run(transport="sse", host="0.0.0.0", port=port)
+            elif arg.startswith("--host="):
+                host = arg.split("=", 1)[1]
+        mcp.run(transport="sse", host=host, port=port)
     else:
         mcp.run()
